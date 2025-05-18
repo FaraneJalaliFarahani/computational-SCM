@@ -115,6 +115,33 @@ def compute_2d_accuracy(label, c, w):
     return result       
 
 
+
+def compute_accuracy_bws(df,
+                         true_comp_col='competence',
+                         true_warm_col='warmth',
+                         pred_comp_col='Competence',
+                         pred_warm_col='Warmth'):
+    """
+    Given df with:
+      - true numeric BWS scores in columns true_comp_col, true_warm_col
+      - predicted scores in pred_comp_col, pred_warm_col
+    Returns the fraction of items that fall into the same quadrant
+    (sign(true_warmth) == sign(pred_warmth) AND sign(true_comp) == sign(pred_comp)).
+    """
+    correct = []
+    for _, row in df.iterrows():
+        # derive gold signs
+        gold_w = 1 if row[true_warm_col]  >= 0 else -1
+        gold_c = 1 if row[true_comp_col]  >= 0 else -1
+        # derive pred signs
+        pred_w = 1 if row[pred_warm_col] >= 0 else -1
+        pred_c = 1 if row[pred_comp_col] >= 0 else -1
+        
+        # correct if both dims match
+        correct.append((gold_w == pred_w) and (gold_c == pred_c))
+    
+    return np.mean(correct)
+
 def compute_accuracy(df):
     ''' Given df containing columns 'Target' (gold labels), 'Warmth', and 'Competence', return accuracy. '''
 
@@ -181,5 +208,6 @@ if __name__ == "__main__":
     # optionally -- compute accuracy with respect to gold labels 
     accuracy = compute_accuracy(test_df)
     print('ACCURACY: ', accuracy)
-        
+    acc_bws = compute_accuracy_bws(test_df, true_comp_col='competence', true_warm_col='warmth', pred_comp_col='Competence', pred_warm_col='Warmth')
+    print(f"BWS‐style quadrant accuracy: {acc_bws:.3f}")
 
