@@ -184,7 +184,8 @@ if __name__ == "__main__":
     df_single_adj = pd.read_csv('embeddings/training_all_one_adjective_' + model_name + '.csv')
     df_double_adj = pd.read_csv('embeddings/training_all_two_adjectives_' + model_name + '.csv')
 
-    tot_df = pd.concat([df_single_adj, df_double_adj], ignore_index=True)
+    #tot_df = pd.concat([df_single_adj, df_double_adj], ignore_index=True)
+    tot_df = df_double_adj
     for i, row in tot_df.iterrows():
         tot_df.at[i, 'Embeddings'] = json.loads(row['Embeddings'])
 
