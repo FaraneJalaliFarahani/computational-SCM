@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     # test file should contain sentences and, optionally, labels
     test_dir = 'data'
-    test_filename = 'testing_all_basic_functionality' #assume CSV file
+    test_filename = 'training_all_two_adjectives2' #assume CSV file
 
     # check if the embeddings already exist; if not, generate them
     if not os.path.isfile('embeddings/' + test_filename + '_' + model_name + '.csv'):
