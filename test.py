@@ -1,184 +1,156 @@
-import pandas as pd
-import numpy as np
-import random
-import os.path
+import argparse
+import os
 import json
-from sentence_transformers import SentenceTransformer
-from sklearn.cross_decomposition import PLSRegression
 import pickle
+import numpy as np
+import pandas as pd
 from scipy.spatial.transform import Rotation as R
-
+from sentence_transformers import SentenceTransformer
 from train import get_embeddings, normalize
 
-    
-def rotate_data(arr):
 
-    ''' Rotate array by 45 degrees  '''
-
+def rotate_data(arr: np.ndarray) -> np.ndarray:
+    """Rotate 2D array by 45 degrees around Z-axis"""
     r = R.from_euler('z', 45, degrees=True)
-    arr = list(arr)
-
-    for i in range(len(arr)):
-        arr[i] = list(arr[i])
-        arr[i].append(0) # add z-coordinate
-        
-    arr = np.array(arr)
-    arr = r.apply(arr)
-    
-    arr = np.delete(arr, 2, 1) #remove z-coordinate
-
-    return arr
-    
-
-def compute_warmth_competence(df, model_name, polar_model='original', PLS=False, PCA=False):
-    ''' Given df and arguments, compute the warmth and competence values '''
-
-    if PLS:
-
-        # get saved PLS model
-        print('Loading PLS model ...')
-        pls = pickle.load(open('pls_model_' + model_name + '.sav', 'rb'))
-
-        # do PLS dimensionality reduction 
-        print('Doing PLS dimensionality reduction ...')
-        PLS_embeddings = pls.transform(np.array(df['Embeddings'].tolist())) 
-        embeddings = [normalize(s) for s in PLS_embeddings]
-        
-        dir_T_inv = np.load('rotation_' + polar_model + '_PLS_' + model_name + '.npy')
-
-        
-    elif PCA:
-    
-        # get saved PCA model
-        print('Loading PCA model ...')
-        pca = pickle.load(open('pca_model_' + model_name + '.sav', 'rb'))
-
-        # do PCA dimensionality reduction 
-        print('Doing PCA dimensionality reduction ...')
-        PCA_embeddings = pca.transform(np.array(df['Embeddings'].tolist())) 
-        embeddings = [normalize(s) for s in PCA_embeddings]
-        
-        dir_T_inv = np.load('rotation_' + polar_model + '_PCA_' + model_name + '.npy')
-        
-    else:
-    
-        embeddings = df['Embeddings'].tolist()
-        dir_T_inv = np.load('rotation_' + polar_model + '_none_' + model_name + '.npy')
+    # Extend to 3D, rotate, then drop Z
+    arr3d = np.hstack([arr, np.zeros((arr.shape[0], 1))])
+    rotated = r.apply(arr3d)
+    return rotated[:, :2]
 
 
-
-    # project to 2D warmth-competence plane (with rotation for axis-rotated POLAR)
-    print('Computing warmth and competence ...')
-    if polar_model == 'original':
-        SCM_embeddings = np.array(np.matmul(embeddings, dir_T_inv))
-    else:
-        SCM_embeddings = rotate_data(np.array(np.matmul(embeddings, dir_T_inv)))
-
-    # make warmth and competence columns 
-    df['Competence'] = SCM_embeddings[:,0].tolist()
-    df['Warmth'] = SCM_embeddings[:,1].tolist()
-    
+def load_embeddings(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    df['Embeddings'] = df['Embeddings'].apply(json.loads)
     return df
 
 
-def compute_1d_accuracy(label, c, w):
-    ''' Given gold label, competence value c, and warmth value w, return 1 if hypothesis matches gold and 0 otherwise. '''
-
-    result = 0
-
-    if label == 'warm' and w >= 0:
-        result = 1
-    elif label == 'cold' and w < 0:
-        result = 1
-    elif label ==  'comp' and c >= 0:
-        result = 1
-    elif label == 'incomp' and c < 0:
-        result = 1
-        
-    return result
-
-
-def compute_2d_accuracy(label, c, w):
-    ''' Given gold label, competence value c, and warmth value w, return 1 if hypothesis matches gold and 0 otherwise. '''
-
-    result = 0
-    
-    if label == 'warm_comp' and w >= 0 and c >= 0:
-        result = 1
-    elif label == 'cold_comp' and w < 0 and c >= 0:
-        result = 1
-    elif label ==  'warm_incomp' and w >= 0 and c < 0:
-        result = 1
-    elif label == 'cold_incomp' and w < 0 and c < 0:
-        result = 1        
-    
-    return result       
-
-
-def compute_accuracy(df):
-    ''' Given df containing columns 'Target' (gold labels), 'Warmth', and 'Competence', return accuracy. '''
-
-    if 'Target' in df:
-        acc = []
-    
-        # heuristic: if target labels contain an underscore, use 2-D accuracy 
-        # (i.e. projected point should lie in correct quadrant)
-        # otherwise use 1D accuracy (correct along the relevant axis only)
-    
-        labels = list(set(df['Target'].tolist()))  
-        use_1d_accuracy = True
-    
-        for label in labels:
-            if '_' in label:
-                 use_1d_accuracy = False
-
-        # compute correctness for each point 
-        for index, row in df.iterrows():
-            if use_1d_accuracy:
-                acc.append(compute_1d_accuracy(row['Target'], row['Competence'], row['Warmth']))
-            else:
-                acc.append(compute_2d_accuracy(row['Target'], row['Competence'], row['Warmth']))
-                
-        return np.mean(acc)
-    
+def ensure_embeddings(df: pd.DataFrame, model: SentenceTransformer, out_path: str) -> pd.DataFrame:
+    if not os.path.isfile(out_path):
+        df = get_embeddings(df, model)
+        df.to_csv(out_path, index=False)
     else:
-        print('No target label information available')
-        return 0
-        
+        print(f"Embeddings file exists: {out_path}")
+    return load_embeddings(out_path)
+
+
+def compute_warmth_competence(
+    df: pd.DataFrame,
+    model_name: str,
+    polar_model: str = 'original',
+    use_pls: bool = False,
+    use_pca: bool = False
+) -> pd.DataFrame:
+    # Load appropriate dimensionality reduction
+    if use_pls:
+        pls = pickle.load(open(f'pls_model_{model_name}.sav', 'rb'))
+        reduced = pls.transform(np.vstack(df['Embeddings'].values))
+        embeddings = [normalize(vec) for vec in reduced]
+        rot_mat = np.load(f'rotation_{polar_model}_PLS_{model_name}.npy')
+    elif use_pca:
+        pca = pickle.load(open(f'pca_model_{model_name}.sav', 'rb'))
+        reduced = pca.transform(np.vstack(df['Embeddings'].values))
+        embeddings = [normalize(vec) for vec in reduced]
+        rot_mat = np.load(f'rotation_{polar_model}_PCA_{model_name}.npy')
+    else:
+        embeddings = df['Embeddings'].tolist()
+        rot_mat = np.load(f'rotation_{polar_model}_none_{model_name}.npy')
+
+    print("Computing warmth and competence...")
+    proj = np.dot(np.vstack(embeddings), rot_mat)
+    if polar_model != 'original':
+        proj = rotate_data(proj)
+
+    df['Competence'] = proj[:, 0]
+    df['Warmth'] = proj[:, 1]
+    return df
+
+
+def compute_accuracy(df: pd.DataFrame) -> float:
+    if 'Target' not in df.columns:
+        print("No target labels, skipping accuracy.")
+        return 0.0
+
+    use_1d = all('_' not in lbl for lbl in df['Target'].unique())
+    correct = []
+    for _, row in df.iterrows():
+        c, w = row['Competence'], row['Warmth']
+        label = row['Target']
+        if use_1d:
+            cond = (
+                (label == 'warm' and w >= 0) or
+                (label == 'cold' and w < 0) or
+                (label == 'comp' and c >= 0) or
+                (label == 'incomp' and c < 0)
+            )
+        else:
+            cond = (
+                (label == 'warm_comp' and w >= 0 and c >= 0) or
+                (label == 'cold_comp' and w < 0 and c >= 0) or
+                (label == 'warm_incomp' and w >= 0 and c < 0) or
+                (label == 'cold_incomp' and w < 0 and c < 0)
+            )
+        correct.append(int(cond))
+    return float(np.mean(correct))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Compute warmth and competence from sentence embeddings"
+    )
+    parser.add_argument("--input-dir", default="data", help="Directory for input CSV")
+    parser.add_argument("--input-file", required=True, help="Base filename (without extension)")
+    parser.add_argument("--embedding-dir", default="embeddings", help="Directory for embeddings CSV")
+    parser.add_argument("--output-dir", default="output", help="Directory for output CSV")
+    parser.add_argument(
+        "--model-name", 
+        default="roberta-large-nli-mean-tokens",
+        help="SentenceTransformer model name"
+    )
+    parser.add_argument(
+        "--polar-model", 
+        choices=["original", "axis_rotated"], 
+        default="original",
+        help="Rotation scheme for warmth-competence axes"
+    )
+    parser.add_argument("--pls", action="store_true", help="Use PLS reduction")
+    parser.add_argument("--pca", action="store_true", help="Use PCA reduction")
+    parser.add_argument("--compute-acc", action="store_true", help="Compute accuracy if targets provided")
+
+    args = parser.parse_args()
+
+    os.makedirs(args.embedding_dir, exist_ok=True)
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    model = SentenceTransformer(args.model_name)
+
+    input_csv = os.path.join(args.input_dir, args.input_file + ".csv")
+    embed_csv = os.path.join(
+        args.embedding_dir,
+        f"{args.input_file}_{args.model_name}.csv"
+    )
+
+    df_raw = pd.read_csv(input_csv)
+    df = ensure_embeddings(df_raw, model, embed_csv)
+
+    df = compute_warmth_competence(
+        df,
+        args.model_name,
+        polar_model=args.polar_model,
+        use_pls=args.pls,
+        use_pca=args.pca
+    )
+
+    output_csv = os.path.join(
+        args.output_dir,
+        f"{args.input_file}_{args.model_name}.csv"
+    )
+    df.to_csv(output_csv, index=False)
+    print(f"Result saved to {output_csv}")
+
+    if args.compute_acc:
+        acc = compute_accuracy(df)
+        print(f"Accuracy: {acc:.4f}")
 
 
 if __name__ == "__main__":
-
-    # sentence embedding model
-    model_name = 'roberta-large-nli-mean-tokens' # can be any model here: https://www.sbert.net/docs/pretrained_models.html
-    model = SentenceTransformer(model_name)
-
-    # test file should contain sentences and, optionally, labels
-    test_dir = 'data'
-    test_filename = 'training_all_two_adjectives2' #assume CSV file
-
-    # check if the embeddings already exist; if not, generate them
-    if not os.path.isfile('embeddings/' + test_filename + '_' + model_name + '.csv'):
-        train_df = pd.read_csv(test_dir + '/' + test_filename + '.csv')
-        train_df = get_embeddings(train_df, model)
-        train_df.to_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
-    else:
-        print('Embeddings appear to exist, moving on ...')
-
-    # load embeddings for test data
-    test_df = pd.read_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
-    for i, row in test_df.iterrows():
-        test_df.at[i, 'Embeddings'] = json.loads(row['Embeddings'])
-        
-        
-    # load the saved dimensionality reduction model and rotation matrix; compute warmth and competence
-    test_df = compute_warmth_competence(test_df, model_name, polar_model='axis_rotated', PLS=True, PCA=False)
-
-    # save to file 
-    print('Outputting file ... ')
-    test_df.to_csv('output/' + test_filename + '_' + model_name + '.csv', index=False)
-    
-    # optionally -- compute accuracy with respect to gold labels 
-    accuracy = compute_accuracy(test_df)
-    print('ACCURACY: ', accuracy)
-
+    main()
