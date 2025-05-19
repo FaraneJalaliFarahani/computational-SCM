@@ -1,202 +1,146 @@
-import pandas as pd
-import numpy as np
-import random
-import os.path
+import argparse
+import os
 import json
+import random
+import pickle
+
+import numpy as np
+import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA
+from scipy.spatial.transform import Rotation as R
 
-import pickle
+from train import normalize
 
-
-def get_embeddings(df, model):
-    ''' get list of Sentences from df; return df containing list of embeddings according to model '''
-    
+def get_embeddings(df: pd.DataFrame, model: SentenceTransformer) -> pd.DataFrame:
+    """Compute and append sentence embeddings to DataFrame."""
     sentences = df['Sentence'].tolist()
     embeddings = model.encode(sentences, normalize_embeddings=True, show_progress_bar=True)
-    for i in range(len(embeddings)):
-        embeddings[i] = list(embeddings[i])
-
-    df['Embeddings'] = embeddings.tolist()
-    
+    df['Embeddings'] = [vec.tolist() for vec in embeddings]
     return df
 
 
-def do_PLS(df, m):
-    ''' Given a dataframe with high-d embeddings from model m, add a column with PLS-reduced embeddings '''
-    
-    PLS_labels = {'warm': [0, 1], 'comp': [1, 0], 'cold': [0, -1], 'incomp': [-1, 0],
-                  'warm_comp': [1, 1], 'warm_incomp': [-1, 1], 'cold_comp': [1, -1], 'cold_incomp': [-1, -1]}
-                  
-    embeddings = np.array(df['Embeddings'].tolist())
-    labels = [PLS_labels[row['Target']] for i, row in df.iterrows()]
+def reduce_embeddings(
+    df: pd.DataFrame,
+    method: str,
+    model_name: str,
+    n_components: int = 10
+) -> pd.DataFrame:
+    """Apply PLS or PCA reduction, save model, and append reduced embeddings."""
+    arr = np.vstack(df['Embeddings'].tolist())
+    if method == 'PLS':
+        labels_map = {
+            'warm': [0,1], 'comp': [1,0], 'cold':[0,-1], 'incomp':[-1,0],
+            'warm_comp':[1,1], 'warm_incomp':[-1,1], 'cold_comp':[1,-1], 'cold_incomp':[-1,-1]
+        }
+        labels = np.array([labels_map[label] for label in df['Target']])
+        model = PLSRegression(n_components=n_components, scale=True)
+    else:  # PCA
+        labels = None
+        model = PCA(n_components=n_components)
 
-    # fit PLS model
-    pls = PLSRegression(n_components=10, scale = True)
-    pls.fit(embeddings, labels)
-    
-    # transform training data 
-    PLS_embeddings = pls.transform(embeddings)
-    df['PLS_embeddings'] = PLS_embeddings.tolist()
-    
-    # save PLS model to transform test data later 
-    filename = 'pls_model_' + m + '.sav'
-    pickle.dump(pls, open(filename, 'wb'))
-    
-    return df
-    
+    model.fit(arr, labels) if labels is not None else model.fit(arr)
+    reduced = model.transform(arr)
+    df[f'{method}_embeddings'] = [vec.tolist() for vec in reduced]
 
-def do_PCA(df, m):
-    ''' Given a dataframe with high-d embeddings from model m, add a column with PCA-reduced embeddings '''
-             
-    embeddings = np.array(df['Embeddings'].tolist())
+    with open(f'{method.lower()}_model_{model_name}.sav', 'wb') as f:
+        pickle.dump(model, f)
 
-    # fit PCA model
-    pca = PCA(n_components=10)
-    pca.fit(embeddings)
-    
-    # transform training data 
-    pca_embeddings = pca.transform(embeddings)
-    df['PCA_embeddings'] = pca_embeddings.tolist()
-    
-    # save PLS model to transform test data later 
-    filename = 'pca_model_' + m + '.sav'
-    pickle.dump(pca, open(filename, 'wb'))
-    
     return df
 
-    
-def get_centroid(df, label, use_PLS=True, use_PCA=False):
-    ''' Given df and direction label (warm, cold, etc.), return centroid of vectors for that direction '''
-    
-    temp_df = df[df['Target'] == label]
-    
-    if temp_df.shape[0] == 0:
-        print('No data for label ', label)
-        exit()
-        
-    if use_PLS and 'PLS_embeddings' in temp_df:  
-        print('Using PLS embeddings ... ')   
-        vecs = temp_df['PLS_embeddings'].tolist()
-    elif use_PCA and 'PCA_embeddings' in temp_df:  
-        print('Using PCA embeddings ... ')   
-        vecs = temp_df['PCA_embeddings'].tolist()
-    else:
-        print('Using original sentence embeddings ...')
-        vecs = temp_df['Embeddings'].tolist()
-        
-    vecs = np.array(vecs)
-    
-    return np.mean(vecs, axis=0)   
-    
 
-def normalize(v):
-    ''' Return normalized vector v  '''
-    
-    return v / np.linalg.norm(v)
-    
+def compute_centroid(
+    df: pd.DataFrame,
+    label: str,
+    method: str
+) -> np.ndarray:
+    """Return centroid of embeddings for a given label and method."""
+    col = f'{method}_embeddings' if method in ('PLS','PCA') else 'Embeddings'
+    subset = df[df['Target'] == label]
+    if subset.empty:
+        raise ValueError(f"No samples for label '{label}'")
+    arr = np.vstack(subset[col].tolist())
+    return np.mean(arr, axis=0)
 
-def compute_rotation_matrix(df, model_name, polar_model='original', PLS=False, PCA=False):
-    ''' Compute the rotation matrix.
-     
-        polar_model: 'original' or 'axis_rotated'
-        PLS: True or False
-        PCA: True or False 
-    '''
-    
-    #NB: consider moving this to train
-    
-    
+
+def compute_rotation_matrix(
+    df: pd.DataFrame,
+    model_name: str,
+    polar_model: str,
+    method: str
+) -> None:
+    """Compute and save rotation matrix for warmth-competence axes."""
+    use_method = method in ('PLS','PCA')
     if polar_model == 'original':
-     
-        # compute centroids for each direction
-        competence_center = normalize(get_centroid(df, 'comp', use_PLS=PLS, use_PCA=PCA))
-        incompetence_center = normalize(get_centroid(df, 'incomp', use_PLS=PLS, use_PCA=PCA))
-        warm_center = normalize(get_centroid(df, 'warm', use_PLS=PLS, use_PCA=PCA))
-        cold_center = normalize(get_centroid(df, 'cold', use_PLS=PLS, use_PCA=PCA))
-
-        # generate rotation matrix 
-        dir_comp = normalize(np.array([competence_center - incompetence_center]))
-        dir_warm = normalize(np.array([warm_center - cold_center]))
-        dir = np.concatenate((dir_comp, dir_warm), axis=0)
-        dir_T_inv = np.linalg.pinv(dir)    
-        
+        comp_cent = normalize(compute_centroid(df, 'comp', method if use_method else 'orig'))
+        incomp_cent = normalize(compute_centroid(df, 'incomp', method if use_method else 'orig'))
+        warm_cent = normalize(compute_centroid(df, 'warm', method if use_method else 'orig'))
+        cold_cent = normalize(compute_centroid(df, 'cold', method if use_method else 'orig'))
+        dirs = np.vstack([comp_cent - incomp_cent, warm_cent - cold_cent])
     elif polar_model == 'axis_rotated':
-
-        # compute centroids for each direction 
-        warm_comp_center = normalize(get_centroid(df, 'warm_comp', use_PLS=PLS, use_PCA=PCA))
-        cold_comp_center = normalize(get_centroid(df, 'cold_comp', use_PLS=PLS, use_PCA=PCA))
-        warm_incomp_center = normalize(get_centroid(df, 'warm_incomp', use_PLS=PLS, use_PCA=PCA))
-        cold_incomp_center = normalize(get_centroid(df, 'cold_incomp', use_PLS=PLS, use_PCA=PCA))
-
-        # generate rotation matrix 
-        dir_comp_warm = normalize(np.array([warm_comp_center - cold_incomp_center]))
-        dir_incomp_warm = normalize(np.array([warm_incomp_center - cold_comp_center]))
-        dir = np.concatenate((dir_comp_warm, dir_incomp_warm), axis=0)
-        dir_T_inv = np.linalg.pinv(dir)      
-    
+        wc = normalize(compute_centroid(df, 'warm_comp', method if use_method else 'orig'))
+        cc = normalize(compute_centroid(df, 'cold_comp', method if use_method else 'orig'))
+        wi = normalize(compute_centroid(df, 'warm_incomp', method if use_method else 'orig'))
+        ci = normalize(compute_centroid(df, 'cold_incomp', method if use_method else 'orig'))
+        dirs = np.vstack([wc - ci, wi - cc])
     else:
-        print("Argument polar_model must be one of 'original' or 'axis_rotated'")
-        exit()
-        
-    # save rotation matrix 
-    if PLS: 
-        np.save('rotation_' + polar_model + '_PLS_' + model_name + '.npy', dir_T_inv)  
-    elif PCA:       
-        np.save('rotation_' + polar_model + '_PCA_' + model_name + '.npy', dir_T_inv)  
-    else:
-        np.save('rotation_' + polar_model + '_none_' + model_name + '.npy', dir_T_inv)  
-        
-    return
+        raise ValueError("polar_model must be 'original' or 'axis_rotated'")
+
+    rot = np.linalg.pinv(dirs)
+    suffix = method if use_method else 'none'
+    np.save(f'rotation_{polar_model}_{suffix}_{model_name}.npy', rot)
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(
+        description="Train and save rotation matrices from sentence embeddings"
+    )
+    parser.add_argument('--input-dir', default='data', help='Folder with CSVs')
+    parser.add_argument('--files', nargs='+', required=True,
+                        help='Base filenames (without .csv) to process')
+    parser.add_argument('--model-name', default='roberta-large-nli-mean-tokens',
+                        help='SentenceTransformer model name')
+    parser.add_argument('--method', choices=['orig','PLS','PCA'], default='PLS',
+                        help='Dimension reduction method')
+    parser.add_argument('--polar-model', choices=['original','axis_rotated'], default='axis_rotated',
+                        help='Rotation scheme')
+    parser.add_argument('--seed', type=int, default=1, help='Random seed')
+    parser.add_argument('--n-components', type=int, default=10,
+                        help='Number of components for PLS/PCA')
+    args = parser.parse_args()
 
-    # for reproducibility
-    rseed = 1
-    np.random.seed(seed=rseed)
-    random.seed(rseed) 
-    
-    
-    # sentence embedding model
-    model_name = 'roberta-large-nli-mean-tokens' # can be any model here: https://www.sbert.net/docs/pretrained_models.html
-    model = SentenceTransformer(model_name)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
 
-    
-    # get sentence embeddings for single-adjective training data - can skip if embeddings already exist
-    if not os.path.isfile('embeddings/training_all_one_adjective_' + model_name + '.csv'):
-        train_df = pd.read_csv('data/training_all_one_adjective.csv')
-        train_df = get_embeddings(train_df, model)
-        train_df.to_csv('embeddings/training_all_one_adjective_' + model_name + '.csv')
-    else:
-        print('Embeddings appear to exist, moving on ...')
+    os.makedirs('embeddings', exist_ok=True)
 
-    # get sentence embeddings for double-adjective training data - can skip if embeddings already exist
-    if not os.path.isfile('embeddings/training_all_two_adjectives_' + model_name + '.csv'):
-        train_df = pd.read_csv('data/training_all_two_adjectives.csv')
-        train_df = get_embeddings(train_df, model)
-        train_df.to_csv('embeddings/training_all_two_adjectives_' + model_name + '.csv')
-    else:
-        print('Embeddings appear to exist, moving on ...')
+    model = SentenceTransformer(args.model_name)
+    all_df = []
+    for name in args.files:
+        path = os.path.join(args.input_dir, f'{name}.csv')
+        df = pd.read_csv(path)
+        emb_csv = os.path.join('embeddings', f'{name}_{args.model_name}.csv')
+        if not os.path.isfile(emb_csv):
+            df = get_embeddings(df, model)
+            df.to_csv(emb_csv, index=False)
+        else:
+            df = pd.read_csv(emb_csv)
+            df['Embeddings'] = df['Embeddings'].apply(json.loads)
+        all_df.append(df)
 
-    # read in embeddings and combine in tot_df
-    df_single_adj = pd.read_csv('embeddings/training_all_one_adjective_' + model_name + '.csv')
-    df_double_adj = pd.read_csv('embeddings/training_all_two_adjectives_' + model_name + '.csv')
+    combined = pd.concat(all_df, ignore_index=True)
 
-    #tot_df = pd.concat([df_single_adj, df_double_adj], ignore_index=True)
-    tot_df = df_double_adj
-    for i, row in tot_df.iterrows():
-        tot_df.at[i, 'Embeddings'] = json.loads(row['Embeddings'])
+    if args.method in ('PLS','PCA'):
+        combined = reduce_embeddings(combined, args.method, args.model_name, args.n_components)
 
+    compute_rotation_matrix(
+        combined,
+        args.model_name,
+        args.polar_model,
+        args.method
+    )
+    print("Training complete.")
 
-    # do PLS dimensionality reduction (optional)
-    tot_df = do_PLS(tot_df, model_name)
-    
-    # do PCA dimensionality reduction (optional)
-    #tot_df = do_PLS(tot_df, model_name)
-
-    # compute and save the rotation matrix
-    compute_rotation_matrix(tot_df, model_name, polar_model='axis_rotated', PLS=True, PCA=False)
-    
-    
+if __name__ == '__main__':
+    main()
