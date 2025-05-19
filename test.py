@@ -30,6 +30,23 @@ def rotate_data(arr):
     return arr
     
 
+
+def save_predictions(df, filename_prefix, model_name, output_dir='output'):
+    ''' Save full results and prediction scores (inputs, true labels, warmth & competence) '''
+    os.makedirs(output_dir, exist_ok=True)
+    # full output
+    full_path = os.path.join(output_dir, f'{filename_prefix}_{model_name}.csv')
+    print('Saving full output to', full_path)
+    df.to_csv(full_path, index=False)
+
+    # just the predictions
+    if 'Target' in df.columns:
+        preds = df[['Sentence', 'Target', 'Competence', 'Warmth']]
+        preds_path = os.path.join(output_dir, f'predictions_{filename_prefix}_{model_name}.csv')
+        print('Saving prediction scores with true labels to', preds_path)
+        preds.to_csv(preds_path, index=False)
+
+
 def compute_warmth_competence(df, model_name, polar_model='original', PLS=False, PCA=False):
     ''' Given df and arguments, compute the warmth and competence values '''
 
@@ -157,23 +174,20 @@ if __name__ == "__main__":
     test_dir = 'data'
     test_filename = 'testing_all_basic_functionality' #assume CSV file
 
-    # check if the embeddings already exist; if not, generate them
-    if not os.path.isfile('embeddings/' + test_filename + '_' + model_name + '.csv'):
-        train_df = pd.read_csv(test_dir + '/' + test_filename + '.csv')
-        train_df = get_embeddings(train_df, model)
-        train_df.to_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
-    else:
-        print('Embeddings appear to exist, moving on ...')
+    test_df = pd.read_csv(test_dir + '/' + test_filename + '.csv')
+    test_df = get_embeddings(test_df, model)
+    # train_df.to_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
+
 
     # load embeddings for test data
-    test_df = pd.read_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
-    for i, row in test_df.iterrows():
-        test_df.at[i, 'Embeddings'] = json.loads(row['Embeddings'])
+    #test_df = pd.read_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
+    # for i, row in test_df.iterrows():
+    #     test_df.at[i, 'Embeddings'] = json.loads(row['Embeddings'])
         
         
     # load the saved dimensionality reduction model and rotation matrix; compute warmth and competence
     test_df = compute_warmth_competence(test_df, model_name, polar_model='axis_rotated', PLS=True, PCA=False)
-
+    save_predictions(test_df, test_filename, model_name)
     # save to file 
     print('Outputting file ... ')
     test_df.to_csv('output/' + test_filename + '_' + model_name + '.csv', index=False)
@@ -182,4 +196,3 @@ if __name__ == "__main__":
     accuracy = compute_accuracy(test_df)
     print('ACCURACY: ', accuracy)
         
-
