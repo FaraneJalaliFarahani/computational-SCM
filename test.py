@@ -7,7 +7,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.cross_decomposition import PLSRegression
 import pickle
 from scipy.spatial.transform import Rotation as R
-
+from scipy.stats import spearmanr 
 from train import get_embeddings, normalize
 
     
@@ -164,35 +164,50 @@ def compute_accuracy(df):
         
 
 
+def compute_spearman_correlation(df):
+    """
+    Given a DataFrame with true continuous labels in columns
+    'competence' and 'warmth' (lower‐case) and predicted values
+    in 'Competence' and 'Warmth' (upper‐case), compute Spearman ρ.
+    """
+    # drop any rows with NaNs
+    sub = df.dropna(subset=['competence','warmth','Competence','Warmth'])
+    comp_r, _ = spearmanr(sub['competence'], sub['Competence'])
+    warm_r, _ = spearmanr(sub['warmth'],    sub['Warmth'])
+    print(f"Spearman ρ – Competence: {comp_r:.4f}, Warmth: {warm_r:.4f}")
+    return comp_r, warm_r
+
+
 if __name__ == "__main__":
 
     # sentence embedding model
-    model_name = 'roberta-large-nli-mean-tokens' # can be any model here: https://www.sbert.net/docs/pretrained_models.html
+    model_name = 'roberta-large-nli-mean-tokens'
     model = SentenceTransformer(model_name)
 
-    # test file should contain sentences and, optionally, labels
-    test_dir = 'data'
-    test_filename = 'testing_all_basic_functionality' #assume CSV file
+    # load test file (could have either discrete “Target” labels or continuous)
+    #test_dir      = 'data'
+    test_dir      = 'data/cross_validation'
+    #test_filename = 'BWS_annotations_modified2'  # e.g. testing_continuous.csv
+    test_filename = 'training_two_adjectives1' 
+    test_df = pd.read_csv(f'{test_dir}/{test_filename}.csv')
 
-    test_df = pd.read_csv(test_dir + '/' + test_filename + '.csv')
+    # always compute embeddings & polar projection
     test_df = get_embeddings(test_df, model)
-    # train_df.to_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
-
-
-    # load embeddings for test data
-    #test_df = pd.read_csv('embeddings/' + test_filename + '_' + model_name + '.csv')
-    # for i, row in test_df.iterrows():
-    #     test_df.at[i, 'Embeddings'] = json.loads(row['Embeddings'])
-        
-        
-    # load the saved dimensionality reduction model and rotation matrix; compute warmth and competence
-    test_df = compute_warmth_competence(test_df, model_name, polar_model='axis_rotated', PLS=True, PCA=False)
+    test_df = compute_warmth_competence(
+        test_df, model_name,
+        polar_model='axis_rotated',
+        PLS=True, PCA=False
+    )
     save_predictions(test_df, test_filename, model_name)
-    # save to file 
-    print('Outputting file ... ')
-    test_df.to_csv('output/' + test_filename + '_' + model_name + '.csv', index=False)
-    
-    # optionally -- compute accuracy with respect to gold labels 
-    accuracy = compute_accuracy(test_df)
-    print('ACCURACY: ', accuracy)
+
+    # now choose evaluation based on columns present:
+    if {'competence','warmth'}.issubset(test_df.columns):
+        # continuous true labels → Spearman
+        compute_spearman_correlation(test_df)
+    elif 'Target' in test_df.columns:
+        # discrete labels → accuracy
+        accuracy = compute_accuracy(test_df)
+        print('ACCURACY: ', accuracy)
+    else:
+        print("No suitable true‐label columns found (need 'Target' or 'competence'+'warmth').")
         
