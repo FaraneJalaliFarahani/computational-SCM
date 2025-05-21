@@ -9,7 +9,7 @@ import pickle
 from scipy.spatial.transform import Rotation as R
 from scipy.stats import spearmanr 
 from train import get_embeddings, normalize
-
+import argparse
     
 def rotate_data(arr):
 
@@ -179,18 +179,21 @@ def compute_spearman_correlation(df):
 
 
 if __name__ == "__main__":
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_file', type=str, help='input file' )
+    args= parser. parse_args()
     # sentence embedding model
     model_name = 'roberta-large-nli-mean-tokens'
     model = SentenceTransformer(model_name)
 
     # load test file (could have either discrete “Target” labels or continuous)
     #test_dir      = 'data'
-    test_dir      = 'data/cross_validation'
+    #test_dir      = 'data/cross_validation'
     #test_filename = 'BWS_annotations_modified2'  # e.g. testing_continuous.csv
-    test_filename = 'training_two_adjectives1' 
-    test_df = pd.read_csv(f'{test_dir}/{test_filename}.csv')
-
+    #test_filename = 'training_two_adjectives1' 
+    #test_df = pd.read_csv(f'{test_dir}/{test_filename}.csv')
+    test_filename = args.input_file.split('/')[-1].split('.')[0]
+    test_df = pd.read_csv(args.input_file)
     # always compute embeddings & polar projection
     test_df = get_embeddings(test_df, model)
     test_df = compute_warmth_competence(
