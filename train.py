@@ -7,6 +7,8 @@ from sentence_transformers import SentenceTransformer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA
 import pickle
+import argparse
+
 
 
 def get_embeddings(df, model):
@@ -145,6 +147,11 @@ def compute_rotation_matrix(df, model_name, polar_model='original', PLS=False, P
 
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_file', type=str, help='input file')
+    args = parser.parse_args()
+
     # reproducibility
     rseed = 1
     np.random.seed(rseed)
@@ -156,7 +163,7 @@ if __name__ == "__main__":
 
     # load training data (modify path as needed)
     #train_df = pd.read_csv('/content/computational-SCM/data/BWS_annotations_modified1.csv')
-    train_df = pd.read_csv('/content/computational-SCM/data/cross_validation/training_two_adjectives2.csv')
+    train_df = pd.read_csv(args.input_file) 
     # embeddings
     train_df = get_embeddings(train_df, model)
 
