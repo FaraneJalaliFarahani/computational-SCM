@@ -1,0 +1,53 @@
+Fold,Sentence,Target
+0,didn't you know that people from that country are all thoughtful as well as able,warm_comp
+0,didn't you know that people from that country are all imaginative as well as sincere,warm_comp
+0,"this group is always beneficent, rational",warm_comp
+0,people from that country are always skilled as well as genuine,warm_comp
+0,all people from this group are warm along with being determined,warm_comp
+0,"didn't you know that people from that country are all responsible, lethargic",warm_incomp
+0,"all people from this group are ignorant, agreeable",warm_incomp
+0,people from that country are always caring but nonresilient,warm_incomp
+0,people from that country are always unintelligent but incorrupt,warm_incomp
+0,everyone knows that this group is faithful but incompetent,warm_incomp
+0,didn't you know that people from that country are all untrustworthy and impulsive,cold_comp
+0,people from that country are always practical along with being unfair,cold_comp
+0,everyone knows that this group is shy in addition to being conscientious,cold_comp
+0,it seems like everyone from that neighborhood is meticulous along with being inhospitable,cold_comp
+0,people from that country are always egoistic but persistent,cold_comp
+0,everyone knows that this group is unsocial and dependent,cold_incomp
+0,it seems like everyone from that neighborhood is spiritless and treacherous,cold_incomp
+0,didn't you know that people from that country are all insensitive but also lazy,cold_incomp
+0,everyone knows that this group is inactive as well as unpopular,cold_incomp
+0,people from that country are always corrupt and anxious,cold_incomp
+1,everyone knows that this group is open as well as untroubled,warm_comp
+1,everyone knows that this group is ambitious in addition to being tolerant,warm_comp
+1,it seems like everyone from that neighborhood is cooperative but insightful,warm_comp
+1,people from that country are always aggressive as well as understing,warm_comp
+1,all people from this group are honest along with being assertive,warm_comp
+1,"people from that country are always secure, selfless",warm_comp
+1,this group is always nice along with being dumb,warm_incomp
+1,people from that country are always unmotivated and honorable,warm_incomp
+1,this group is always welcoming but also dominated,warm_incomp
+1,didn't you know that people from that country are all inept as well as hospitable,warm_incomp
+1,it seems like everyone from that neighborhood is sensitive along with being unadventurous,warm_incomp
+1,didn't you know that people from that country are all rough but also dedicated,cold_comp
+1,it seems like everyone from that neighborhood is intelligent and dishonest,cold_comp
+1,people from that country are always double-faced as well as wise,cold_comp
+1,didn't you know that people from that country are all motivated along with being disagreeable,cold_comp
+1,everyone knows that this group is unaffectionate but brilliant,cold_comp
+1,"it seems like everyone from that neighborhood is vicious, foolish",cold_incomp
+1,it seems like everyone from that neighborhood is ineffective along with being scheming,cold_incomp
+1,this group is always revengeful but incapable,cold_incomp
+1,people from that country are always maladroit but distant,cold_incomp
+1,this group is known for being timid along with being wavering,cold_incomp
+2,this group is known for being funny along with being daring,warm_comp
+2,people from that country are always graceful as well as lenient,warm_comp
+2,this group is always good and unwavering,warm_comp
+2,everyone knows that this group is autonomous in addition to being supportive,warm_comp
+2,all people from this group are reliable and self-reliant,warm_comp
+2,everyone knows that this group is liked in addition to being unwise,warm_incomp
+2,everyone knows that this group is unambitious but also forgiving,warm_incomp
+2,this group is always moral in addition to being vulnerable,warm_incomp
+2,everyone knows that this group is irrational along with being social,warm_incomp
+2,people from that country are always affectionate but uncompetitive,warm_incomp
+2,didn't you know that people from that country are all fake in addition to being dominating,cold_comp
